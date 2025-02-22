@@ -1,0 +1,80 @@
+ultralytics
+├── assets: 存放资产文件的目录。
+├── cfg: 配置文件目录。
+│   └── default.yaml: 默认配置文件，包含训练和测试的参数设置。
+├── data: 数据文件目录。
+│   ├── __init__.py: 初始化数据模块。
+│   ├── annotator.py: 数据注释工具。
+│   ├── augment.py: 数据增强工具。
+│   ├── base.py: 数据处理的基础类和函数。
+│   ├── build.py: 数据构建工具。
+│   ├── converter.py: 数据转换工具。
+│   ├── dataset.py: 数据集处理工具。
+│   ├── loaders.py: 数据加载工具。
+│   ├── split_dota.py: 专用于DOTA数据集的分割工具。
+│   └── utils.py: 数据处理的辅助工具。
+├── engine: 引擎代码目录。
+│   ├── __init__.py: 初始化引擎模块。
+│   ├── exporter.py: 导出模型的工具。
+│   ├── model.py: 定义模型结构的文件。
+│   ├── predictor.py: 预测功能的实现。
+│   ├── results.py: 处理和展示结果的工具。
+│   ├── trainer.py: 模型训练的工具。
+│   ├── tuner.py: 模型调优工具。
+│   └── validator.py: 模型验证工具。
+├── hub: 模型集线器目录。
+│   ├── __init__.py: 初始化集线器模块。
+│   ├── auth.py: 处理身份验证的工具。
+│   ├── session.py: 管理会话的工具。
+│   └── utils.py: 集线器模块的辅助工具。
+├── models: 模型代码目录。
+│   ├── fastsam: 存放FastSAM模型相关代码的目录。
+│   ├── nas: 存放NAS模型相关代码的目录。
+│   ├── rtdetr: 存放RT-DETR模型相关代码的目录。
+│   ├── sam: 存放SAM模型相关代码的目录。
+│   ├── utils: 存放模型工具函数的目录。
+│   └── yolo: YOLO模型相关代码的目录。
+│       ├── __init__.py: 初始化YOLO模型模块。
+│       ├── model.py: 定义YOLO模型结构的文件。
+│       ├── predict.py: YOLO模型的预测实现。
+│       ├── train.py: YOLO模型的训练实现。
+│       └── val.py: YOLO模型的验证实现。
+├── nn: 神经网络代码目录。
+│   ├── __init__.py: 初始化神经网络模块。
+│   ├── modules: 存放神经网络模块的目录。
+│       └── __init__.py: 初始化模块目录。
+│   ├── autobackend.py: 自动选择后端的工具。
+│   └── tasks.py: 定义神经网络任务的文件。
+├── solutions: 解决方案目录。
+│   ├── __init__.py: 初始化解决方案模块。
+│   ├── ai_gym.py: AI健身房相关解决方案。
+│   ├── distance_calculation.py: 距离计算相关解决方案。
+│   ├── heatmap.py: 热图生成解决方案。
+│   ├── object_counter.py: 物体计数解决方案。
+│   └── speed_estimation.py: 速度估算解决方案。
+├── trackers: 跟踪器目录。
+│   ├── __init__.py: 初始化跟踪器模块。
+│   ├── basetrack.py: 基础跟踪器实现。
+│   ├── bot_sort.py: BOT SORT跟踪器实现。
+│   ├── byte_tracker.py: BYTE跟踪器实现。
+│   ├── README.md: 跟踪器模块说明文件。
+│   └── track.py: 跟踪器的主要实现文件。
+├── utils: 工具函数目录。
+│   ├── __init__.py: 初始化工具模块。
+│   ├── autobatch.py: 自动批处理工具。
+│   ├── benchmarks.py: 基准测试工具。
+│   ├── checks.py: 检查工具。
+│   ├── dist.py: 分布式计算工具。
+│   ├── downloads.py: 下载工具。
+│   ├── errors.py: 错误处理工具。
+│   ├── files.py: 文件处理工具。
+│   ├── instance.py: 实例化工具。
+│   ├── loss.py: 损失计算工具。
+│   ├── metrics.py: 评估指标工具。
+│   ├── ops.py: 操作函数工具。
+│   ├── patches.py: 补丁工具。
+│   ├── plotting.py: 绘图工具。
+│   ├── tal.py: TAL相关工具。
+│   ├── torch_utils.py: PyTorch工具函数。
+│   ├── triton.py: Triton相关工具。
+│   └── tuner.py: 调优工具。

@@ -1,0 +1,80 @@
+yolov10-main
+├── datasets: 存放数据集的目录。
+├── docker: Docker相关文件，用于容器化部署。
+│   ├── Dockerfile: 用于构建默认Docker镜像。
+│   ├── Dockerfile-arm64: 用于构建ARM64架构的Docker镜像。
+│   ├── Dockerfile-conda: 用于构建包含Conda环境的Docker镜像。
+│   ├── Dockerfile-cpu: 用于构建仅支持CPU的Docker镜像。
+│   ├── Dockerfile-jetson: 用于构建NVIDIA Jetson设备的Docker镜像。
+│   ├── Dockerfile-python: 用于构建包含Python环境的Docker镜像。
+│   ├── Dockerfile-runner: 用于构建运行特定任务的Docker镜像。
+├── docs: 项目文档目录。
+│   ├── en: 英文文档目录。
+│   ├── overrides: MkDocs配置覆盖目录。
+│   ├── build_docs.py: 构建文档的脚本。
+│   ├── build_reference.py: 构建参考文档的脚本。
+│   ├── coming_soon_template.md: 即将发布的模板文档。
+│   ├── mkdocs_github_authors.yaml: MkDocs配置文件，包含GitHub作者信息。
+│   └── README.md: 文档目录的说明文件。
+├── examples: 示例代码目录。
+│   ├── YOLOv8-CPP-Inference: YOLOv8 C++推理示例。
+│   ├── YOLOv8-LibTorch-CPP-Inference: YOLOv8 LibTorch C++推理示例。
+│   ├── YOLOv8-ONNXRuntime: YOLOv8 ONNXRuntime推理示例。
+│   ├── YOLOv8-ONNXRuntime-CPP: YOLOv8 ONNXRuntime C++推理示例。
+│   ├── YOLOv8-ONNXRuntime-Rust: YOLOv8 ONNXRuntime Rust推理示例。
+│   ├── YOLOv8-OpenCV-int8-tflite-Python: YOLOv8 OpenCV int8 tflite Python推理示例。
+│   ├── YOLOv8-OpenCV-ONNX-Python: YOLOv8 OpenCV ONNX Python推理示例。
+│   ├── YOLOv8-Region-Counter: YOLOv8区域计数示例。
+│   ├── YOLOv8-SAHI-Inference-Video: YOLOv8 SAHI视频推理示例。
+│   ├── YOLOv8-Segmentation-ONNXRuntime-Python: YOLOv8分割 ONNXRuntime Python推理示例。
+│   ├── heatmaps.ipynb: 热图生成示例。
+│   ├── hub.ipynb: 模型集线器示例。
+│   ├── object_counting.ipynb: 物体计数示例。
+│   ├── object_tracking.ipynb: 物体跟踪示例。
+│   └── tutorial.ipynb: 教程示例。
+├── figures: 存放项目相关的图像文件。
+│   ├── latency.svg: 延迟图。
+│   ├── params.svg: 参数图。
+├── models: 存放模型文件的目录。
+│   ├── yolov10n.pt: YOLOv10n模型文件。
+├── runs: 存放运行结果的目录。
+│   ├── detect: 检测结果。
+│   ├── train5: 第五次训练结果。
+│   ├── train6: 第六次训练结果。
+│   ├── val: 验证结果。
+├── tests: 测试代码目录。
+│   ├── conftest.py: 测试配置文件。
+│   ├── test_cli.py: CLI测试脚本。
+│   ├── test_cuda.py: CUDA测试脚本。
+│   ├── test_engine.py: 引擎测试脚本。
+│   ├── test_explorer.py: 探索测试脚本。
+│   ├── test_integrations.py: 集成测试脚本。
+│   ├── test_python.py: Python测试脚本。
+├── ultralytics: YOLOv10核心代码目录。
+│   ├── assets: 资产文件目录。
+│   ├── cfg: 配置文件目录。
+│   ├── data: 数据文件目录。
+│   ├── engine: 引擎代码目录。
+│   ├── hub: 模型集线器目录。
+│   ├── models: 模型代码目录。
+│   ├── nn: 神经网络代码目录。
+│   ├── solutions: 解决方案目录。
+│   ├── trackers: 跟踪器目录。
+│   ├── utils: 工具函数目录。
+│   └── __init__.py: 初始化文件。
+├── ultralytics.egg-info: 项目安装信息目录。
+│   ├── dependency_links.txt: 依赖链接信息。
+│   ├── entry_points.txt: 入口点信息。
+│   ├── PKG-INFO: 包信息。
+│   ├── requires.txt: 依赖项信息。
+│   ├── SOURCES.txt: 源文件信息。
+│   └── top_level.txt: 顶级模块信息。
+├── .gitignore: 指定应忽略的文件和目录。
+├── .pre-commit-config.yaml: 配置pre-commit钩子的文件。
+├── 1.txt: 未知用途文件。
+├── CONTRIBUTING.md: 贡献指南，指导用户如何为项目做贡献。
+├── LICENSE: 包含项目的许可信息。
+├── mkdocs.yml: MkDocs配置文件，用于生成项目文档。
+├── pyproject.toml: 项目配置文件，包括依赖项和工具配置。
+├── README.md: 提供项目概述和使用说明。
+└── requirements.txt: 列出项目所需的Python依赖库。
