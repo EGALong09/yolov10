@@ -1,0 +1,11 @@
+训练
+yolo detect train data=ultralytics/cfg/datasets/coco128.yaml model=ultralytics/cfg/models/v10/yolov10n.yaml epochs=100 batch=64 imgsz=320 device=0
+
+验证
+yolo val model=runs/detect/train16/weights/best.pt data=ultralytics/cfg/datasets/coco8.yaml batch=4
+
+预测ultralytics/assets下的图片
+yolo predict model=runs/detect/train16/weights/best.pt
+
+C:\Users\egalong\AppData\Roaming\Ultralytics下有yolo全局配置文件
+
