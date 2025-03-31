@@ -17,6 +17,7 @@ def train():
     # 配置训练参数
     args = {
         'data': 'ultralytics/cfg/datasets/coco128.yaml',      # 数据集配置文件路径
+        'model': 'ultralytics/cfg/models/v10/yolov10n.yaml',  #
         'weights': 'yolov10n.pt',        # 初始权重（官方预训练或None从头训练）
         'epochs': 100,                   # 训练轮次
         'batch': 64,                     # 批量大小
@@ -36,7 +37,17 @@ def train():
     }
 
     # 初始化模型
-    model = YOLOv10(args['weights'])
+    model = YOLOv10(
+        # model=args['model'],
+        args['weights']
+    )
+
+    # 检查是否使用了修改后的SPPF
+    for name, m in model.named_modules():
+        if 'SPPF' in name:
+            print(f"找到SPPF层: {name}")
+            print("是否包含EAN模块:", hasattr(m, 'ean'))
+            break
 
     # 开始训练
     results = model.train(

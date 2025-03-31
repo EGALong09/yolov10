@@ -8,6 +8,7 @@ import torch.nn.functional as F
 from .conv import Conv, DWConv, GhostConv, LightConv, RepConv, autopad
 from .transformer import TransformerBlock
 from ultralytics.utils.torch_utils import fuse_conv_and_bn
+from ultralytics.utils.ean import EAN
 
 __all__ = (
     "DFL",
@@ -158,7 +159,7 @@ class SPP(nn.Module):
 class SPPF(nn.Module):
     """Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher."""
 
-    def __init__(self, c1, c2, k=5):
+    def __init__(self, c1, c2, k=5, groups=8):
         """
         Initializes the SPPF layer with given input/output channels and kernel size.
 
@@ -166,16 +167,18 @@ class SPPF(nn.Module):
         """
         super().__init__()
         c_ = c1 // 2  # hidden channels
-        self.cv1 = Conv(c1, c_, 1, 1)
-        self.cv2 = Conv(c_ * 4, c2, 1, 1)
-        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)
+        self.cv1 = Conv(c1, c_, 1, 1)   # 通道压缩
+        self.cv2 = Conv(c_ * 4, c2, 1, 1)   # 通道恢复
+        self.m = nn.MaxPool2d(kernel_size=k, stride=1, padding=k // 2)  # 多尺度池化
+        self.ean = EAN(c2, groups=groups)
 
     def forward(self, x):
         """Forward pass through Ghost Convolution block."""
         x = self.cv1(x)
         y1 = self.m(x)
         y2 = self.m(y1)
-        return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+        out = self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))  # 先获取原始输出
+        return self.ean(out)  # 再应用EAN
 
 
 class C1(nn.Module):
