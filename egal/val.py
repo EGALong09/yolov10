@@ -27,7 +27,7 @@ def validate():
     args = {
         'data': 'ultralytics/cfg/datasets/coco128.yaml',      # 数据集配置文件路径（与训练一致）
         'weights': '../runs/detect/train-v10n+coco128/weights/best.pt',  # 要验证的模型权重
-        'batch': 64,                     # 批量大小（根据显存调整）
+        'batch': 32,                     # 批量大小（根据显存调整）
         'imgsz': 320,                    # 输入图像尺寸（与训练一致）
         'device': '0',                   # 设备（0为GPU，'cpu'为CPU）
         'workers': 4,                    # 数据加载线程数

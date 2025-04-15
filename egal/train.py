@@ -16,10 +16,10 @@ torch.backends.cudnn.deterministic = True
 def train():
     # 配置训练参数
     args = {
-        'data': 'ultralytics/cfg/datasets/coco128.yaml',      # 数据集配置文件路径
+        'data': 'ultralytics/cfg/datasets/tt100k.yaml',      # 数据集配置文件路径
         'weights': 'yolov10n.pt',        # 初始权重（官方预训练或None从头训练）
         'epochs': 100,                   # 训练轮次
-        'batch': 64,                     # 批量大小
+        'batch': 32,                     # 批量大小
         'imgsz': 320,                    # 输入图像尺寸
         'device': '0',                   # 设备（0为GPU，'cpu'为CPU）
         'workers': 4,                    # 数据加载线程数
