@@ -43,7 +43,7 @@ def validate():
     model = YOLOv10(args['weights'])
 
     # 手动构建保存目录（替代 model.val_dir）
-    save_dir = Path("../runs") / "detect" / "log"
+    save_dir = Path("runs") / "detect" / "log"
     save_dir.mkdir(parents=True, exist_ok=True)
 
     # 记录开始时间
