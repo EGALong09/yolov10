@@ -83,6 +83,7 @@ class DetectionValidator(BaseValidator):
 
     def postprocess(self, preds):
         """Apply Non-maximum suppression to prediction outputs."""
+
         return ops.non_max_suppression(
             preds,
             self.args.conf,

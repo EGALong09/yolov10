@@ -1,0 +1,46 @@
+# YOLOv10 交通目标检测数据集配置文件
+
+# 数据集根目录（相对于此yaml文件的路径）
+path: ../labeled
+
+# 训练集路径（相对于path）
+train: images/train
+
+# 验证集路径（相对于path）
+val: images/val
+
+# 类别数量
+nc: 8
+
+# 类别名称
+names:
+  0: car          # 汽车
+  1: pedestrian   # 行人
+  2: traffic_light # 交通信号灯
+  3: truck        # 卡车
+  4: bus          # 公交车
+  5: motorcycle   # 摩托车
+  6: bicycle      # 自行车
+  7: traffic_sign # 交通标志
+
+# 数据集信息（可选）
+dataset_info:
+  description: "交通场景目标检测数据集，用于半监督学习基准训练"
+  version: "1.0"
+  year: 2024
+  contributor: "YOLOv10 SSL Project"
+
+# 数据增强配置（可选，会被训练配置覆盖）
+augment:
+  hsv_h: 0.015
+  hsv_s: 0.7
+  hsv_v: 0.4
+  degrees: 0.0
+  translate: 0.1
+  scale: 0.5
+  shear: 0.0
+  perspective: 0.0
+  flipud: 0.0
+  fliplr: 0.5
+  mosaic: 1.0
+  mixup: 0.0

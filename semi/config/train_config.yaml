@@ -1,0 +1,93 @@
+# YOLOv10 半监督学习训练配置文件
+
+# 项目根目录
+project_root: D:/aWorkHome/project/python/yolov10
+
+# 数据集配置
+datasets_base_dir: D:/aWorkHome/project/python/datasets/coco8
+
+initial_dataset_yaml: coco8.yaml  # 初始有标签数据集配置文件
+labeled_data_root_dir:  D:/aWorkHome/project/python/datasets/coco8                   # 原始有标签数据根目录
+unlabeled_images_dir: D:/aWorkHome/project/python/datasets/coco8/unlabeled      # 无标签图片目录
+pseudo_labels_output_root: D:/aWorkHome/project/python/datasets/coco8/generated_data/pseudo_labels  # 生成的伪标签的根目录 (脚本会在其下创建 iter_N/labels 子目录)
+consolidated_data_output_root: D:/aWorkHome/project/python/datasets/coco8/generated_data/consolidated_data # 生成的合并数据集的根目录 (脚本会在其下创建 iter_N 子目录)
+generated_dataset_yamls_output_dir: D:/aWorkHome/project/python/datasets/coco8/generated_data/dataset_configs # 生成的迭代数据集YAML文件的存放目录
+
+# 7. 固定验证集图片的路径 (用于评估所有模型，确保一致性)
+# 这个路径应该直接指向验证集图片文件夹。
+# 新生成的 dataset_iter_N.yaml 中的 'val' 字段会引用这个路径。
+# 如果你的 initial_dataset_yaml 已经正确定义了验证集，并且可以被YOLO直接使用，
+# 那么在 ModelEvaluator 中可以直接使用 initial_dataset_yaml 进行评估。
+# 此处我们显式定义，以便 DataConsolidator 在生成新的yaml时能正确指向。
+# (注意：这个路径的用法需要在 DataConsolidator 中正确处理，使其在新YAML中相对于新YAML的'path'字段正确)
+# 为了简化 DataConsolidator 的逻辑，我们假设这个路径是验证集图片文件夹的绝对路径或相对于 project_root 的路径，
+# DataConsolidator 在生成新的 dataset_iter_N.yaml 时，会将其转换为相对于新YAML的 `path` 字段的相对路径。
+# 或者，更简单的是，让 ModelEvaluator 始终使用 initial_dataset_yaml 进行评估，这样就不需要这个配置。
+# 但如果 DataConsolidator 需要它来构建新的yaml，就需要它。
+# 假设 ModelEvaluator 总是用 initial_dataset_yaml评估，则此项不是必须给DataConsolidator。
+# 但如果新的dataset_iter_N.yaml也需要一个val字段，它必须指向固定的验证集。
+# 我们让 DataConsolidator 使用这个路径来构建新yaml的val字段。
+fixed_validation_images_path: D:/aWorkHome/project/python/datasets/coco8/images/val # 指向验证集图片
+fixed_validation_labels_path: D:/aWorkHome/project/python/datasets/coco8/labels/val # 指向验证集标签 (如果YOLO需要)
+# 注意：Ultralytics的dataset.yaml通常只需要images路径，它会自动查找同级目录下的labels。
+# 但为了清晰，我们可以在DataConsolidator中考虑它。
+
+# 模型配置
+pretrained_model: yolov10n.pt  # 预训练模型，可选: yolov10n/s/m/l/x.pt
+
+# 迭代训练配置
+num_iterations: 1              # 总迭代轮数
+baseline_epochs: 6            # 基准模型训练轮数
+retrain_epochs: 5            # 每轮迭代再训练轮数
+batch_size: 8                 # 批处理大小
+image_size: 640                # 训练图像尺寸
+
+# 伪标签生成配置
+pseudo_label_conf_threshold: 0.3  # 伪标签置信度阈值
+
+# 学习率配置
+retrain_learning_rate: 0.001   # 微调时的学习率
+
+# 早停和错误处理配置
+min_improvement_threshold: 0.001  # 最小性能提升阈值
+early_stopping: true              # 是否启用早停
+continue_on_error: false           # 出错时是否继续
+
+# YOLO训练详细配置
+yolo_config:
+  device: 0                    # GPU设备号，使用CPU则设为'cpu'
+  workers: 8                   # 数据加载进程数
+  amp: true                    # 是否使用自动混合精度
+  patience: 50                 # 早停耐心值
+  seed: 0                      # 随机种子
+  optimizer: SGD               # 优化器类型
+  momentum: 0.937              # SGD动量
+  weight_decay: 0.0005         # 权重衰减
+  warmup_epochs: 3.0           # 预热轮数
+  close_mosaic: 10             # 最后几轮关闭mosaic增强
+
+  # 数据增强配置
+  augment: true
+  augment_params:
+    hsv_h: 0.015               # HSV色调增强
+    hsv_s: 0.7                 # HSV饱和度增强
+    hsv_v: 0.4                 # HSV明度增强
+    degrees: 0.0               # 旋转角度
+    translate: 0.1             # 平移
+    scale: 0.5                 # 缩放
+    shear: 0.0                 # 剪切
+    perspective: 0.0           # 透视变换
+    flipud: 0.0                # 上下翻转概率
+    fliplr: 0.5                # 左右翻转概率
+    mosaic: 1.0                # Mosaic增强概率
+    mixup: 0.0                 # Mixup增强概率
+
+# 评估配置
+eval_config:
+  batch_size: 32               # 评估批处理大小
+  imgsz: 640                   # 评估图像尺寸
+  conf: 0.001                  # 评估置信度阈值
+  iou: 0.6                     # NMS IoU阈值
+  device: 0                    # 评估设备
+  save_json: false             # 是否保存JSON格式结果
+  save_txt: false              # 是否保存TXT格式结果
