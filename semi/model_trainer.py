@@ -2,117 +2,121 @@
 模型训练器模块
 封装YOLOv10模型的训练功能
 """
-
+import math
 import os
+from copy import deepcopy
+
+import torch
 import subprocess
 import logging
 from pathlib import Path
 import yaml
 import json
+from ultralytics import YOLOv10
+
+
+class EMAUpdate:
+    """在训练过程中更新EMA教师模型的回调。"""
+
+    def __init__(self, teacher_model, decay=0.9996):
+        """
+        初始化EMA更新器。
+
+        Args:
+            teacher_model: 教师模型实例 (完整的YOLOv10对象)
+            decay: EMA平滑系数。
+        """
+        # 【关键】我们操作的是YOLOv10对象内部的 nn.Module
+        self.teacher_model_module = teacher_model.model
+        self.decay = decay  # 【关键】使用从外部传入的decay值
+        self.updates = 0
+        self.logger = logging.getLogger(__name__)
+
+    def __call__(self, trainer):
+        # trainer.model 是学生模型的底层 nn.Module
+        student_model_module = trainer.model
+
+        with torch.no_grad():
+            # 在训练的第一个step，直接将学生权重复制给教师，以确保完全同步
+            if self.updates == 0:
+                self.teacher_model_module.load_state_dict(student_model_module.state_dict())
+                self.logger.info("EMA Teacher初始化完成，已与学生模型同步。")
+
+            # 使用去偏（de-bias）的衰减率，这在训练早期更稳定
+            self.updates += 1
+            decay = self.decay * (1 - math.exp(-self.updates / 2000))
+
+            student_sd = student_model_module.state_dict()
+            teacher_sd = self.teacher_model_module.state_dict()
+
+            for key in teacher_sd:
+                if teacher_sd[key].is_floating_point():
+                    teacher_sd[key].data.copy_(decay * teacher_sd[key].data + (1 - decay) * student_sd[key].data)
 
 
 class ModelTrainer:
     """模型训练器类"""
 
-    def __init__(self, config):
-        """
-        初始化模型训练器
-
-        Args:
-            config: YOLO训练配置
-        """
-        self.config = config
+    def __init__(self, yolo_config):
+        self.yolo_config = yolo_config
         self.logger = logging.getLogger(__name__)
 
-    def train(self, train_config):
+    def train(self, student_model_instance, train_config, teacher_model_instance=None):
         """
-        训练YOLOv10模型
-
-        Args:
-            train_config: 训练配置字典，包含:
-                - data: 数据集配置文件路径
-                - model: 预训练模型或上一轮模型路径
-                - epochs: 训练轮数
-                - batch_size: 批处理大小
-                - imgsz: 图像尺寸
-                - project: 项目保存路径
-                - name: 实验名称
-                - lr0: 初始学习率（可选）
-                - exist_ok: 是否覆盖已存在的实验（可选）
-
-        Returns:
-            训练好的模型权重路径
+        训练YOLOv10模型。
+        直接接收并训练传入的模型对象。
         """
         try:
-            # 使用Ultralytics的Python API进行训练
-            from ultralytics import YOLOv10
+            # 【关键】直接使用传入的模型对象，不再重新创建
+            student_model = student_model_instance
 
-            # 加载模型
-            model = YOLOv10(train_config['model'])
+            # 如果传入了教师模型，则启用EMA
+            if teacher_model_instance:
+                decay = train_config.get('ema_decay', 0.9996)
+                self.logger.info(f"启用EMA Teacher模式，decay={decay}")
 
-            # 准备训练参数
-            train_args = {
-                'data': train_config['data'],
-                'epochs': train_config['epochs'],
-                'batch': train_config['batch_size'],
-                'imgsz': train_config['imgsz'],
-                'project': train_config['project'],
-                'name': train_config['name'],
-                'exist_ok': train_config.get('exist_ok', False),
-                'patience': self.config.get('patience', 50),
-                'save': True,
-                'save_period': -1,  # 只保存最佳和最后的模型
-                'device': self.config.get('device', 0),  # GPU设备号
-                'workers': self.config.get('workers', 8),
-                'amp': self.config.get('amp', True),  # 自动混合精度
-                'verbose': True,
-                'seed': self.config.get('seed', 0)
-            }
+                if student_model is teacher_model_instance:
+                    raise ValueError("学生模型和教师模型不能是同一个对象实例！")
 
-            # 如果指定了学习率，添加到参数中
-            if 'lr0' in train_config:
-                train_args['lr0'] = train_config['lr0']
+                # 创建回调实例，并传入教师模型实例
+                ema_updater = EMAUpdate(teacher_model_instance, decay=decay)
+                student_model.add_callback("on_train_batch_end", ema_updater)
 
-            # 添加其他高级训练参数
-            if 'optimizer' in self.config:
-                train_args['optimizer'] = self.config['optimizer']
-            if 'momentum' in self.config:
-                train_args['momentum'] = self.config['momentum']
-            if 'weight_decay' in self.config:
-                train_args['weight_decay'] = self.config['weight_decay']
-            if 'warmup_epochs' in self.config:
-                train_args['warmup_epochs'] = self.config['warmup_epochs']
-            if 'close_mosaic' in self.config:
-                train_args['close_mosaic'] = self.config['close_mosaic']
+            # 准备并净化传递给ultralytics的参数
+            train_args = self.yolo_config.copy()
+            train_args.update(train_config)
 
-            # 数据增强参数
-            if 'augment' in self.config and self.config['augment']:
-                augment_params = self.config.get('augment_params', {})
-                for key, value in augment_params.items():
-                    train_args[key] = value
+            known_args = [
+                'data', 'epochs', 'batch', 'imgsz', 'project', 'name', 'exist_ok', 'patience',
+                'save', 'save_period', 'device', 'workers', 'amp', 'verbose', 'seed', 'lr0',
+                'optimizer', 'momentum', 'weight_decay', 'warmup_epochs', 'close_mosaic',
+                'hsv_h', 'hsv_s', 'hsv_v', 'degrees', 'translate', 'scale', 'shear',
+                'perspective', 'flipud', 'fliplr', 'mosaic', 'mixup', 'copy_paste', 'augment'
+            ]
 
-            self.logger.info(f"开始训练，参数: {train_args}")
+            # 为了确保100%纯净，我们只挑选白名单里的参数
+            final_train_args = {key: train_args[key] for key in known_args if key in train_args}
 
-            # 执行训练
-            results = model.train(**train_args)
+            self.logger.info(f"开始训练，最终传递参数: {final_train_args}")
+            results = student_model.train(**final_train_args)
 
-            # 获取最佳模型路径
             save_dir = Path(train_config['project']) / train_config['name']
             best_model_path = save_dir / 'weights' / 'best.pt'
-
             if not best_model_path.exists():
-                # 如果没有best.pt，使用last.pt
                 best_model_path = save_dir / 'weights' / 'last.pt'
 
-            self.logger.info(f"训练完成，模型保存在: {best_model_path}")
+            self.logger.info(f"训练完成，学生模型保存在: {best_model_path}")
 
-            # 保存训练结果摘要
-            self._save_training_summary(save_dir, results)
+            if teacher_model_instance:
+                # 训练结束后保存教师模型权重（可选，但推荐）
+                teacher_model_instance.save(save_dir / 'weights' / 'teacher_best.pt')
+                self.logger.info(f"教师模型保存在: {save_dir / 'weights' / 'teacher_best.pt'}")
+                student_model.clear_callbacks("on_train_batch_end")
 
             return str(best_model_path)
 
         except Exception as e:
-            self.logger.error(f"训练过程中出错: {e}")
+            self.logger.error(f"训练过程中出错: {e}", exc_info=True)
             raise
 
     def train_with_cli(self, train_config):

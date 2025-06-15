@@ -116,7 +116,7 @@ class DataConsolidator:
         unlabeled_images_input_dir = Path(consolidate_run_config['unlabeled_images_input_dir'])
         pseudo_labels_input_dir = Path(consolidate_run_config['pseudo_labels_input_dir'])
 
-        consolidated_output_dir = Path(consolidate_run_config['consolidated_output_dir'])  # 这是合并数据的根目录
+        consolidated_output_dir = Path(consolidate_run_config['consolidated_output_dir'])  # 合并数据的根目录
         new_dataset_yaml_path = Path(consolidate_run_config['new_dataset_yaml_path'])  # 新YAML的保存位置
 
         fixed_validation_images_path = Path(consolidate_run_config['fixed_validation_images_path'])
@@ -126,28 +126,67 @@ class DataConsolidator:
         # 创建输出目录结构
         images_train_dir = consolidated_output_dir / 'images' / 'train'
         labels_train_dir = consolidated_output_dir / 'labels' / 'train'
+
+        # 在创建前，如果目录已存在，先清空，避免旧的符号链接干扰
+        if consolidated_output_dir.exists():
+            shutil.rmtree(consolidated_output_dir)
+
         images_train_dir.mkdir(parents=True, exist_ok=True)
         labels_train_dir.mkdir(parents=True, exist_ok=True)
 
         self.logger.info("开始整合数据...")
 
-        # 1. 复制原始有标签训练数据
-        # original_labeled_data_root_dir 指向的是类似 .../labeled_data/ 这样的目录
-        self.logger.info("复制原始有标签训练数据...")
-        original_images_count = self.copy_files(
-            original_labeled_data_root_dir / 'images' / 'train',
-            images_train_dir,
-            "*.*"
-        )
-        original_labels_count = self.copy_files(
-            original_labeled_data_root_dir / 'labels' / 'train',
-            labels_train_dir,
-            "*.txt"
-        )
-        self.logger.info(f"复制了 {original_images_count} 张原始图片和 {original_labels_count} 个原始标签")
+        # 1. 创建指向原始有标签数据的符号链接
+        self.logger.info("创建原始有标签数据的符号链接...")
 
-        # 2. 复制带有伪标签的无标签数据
-        # ... (match_images_and_labels 和复制逻辑不变) ...
+        original_images_dir = original_labeled_data_root_dir / 'images' / 'train'
+        original_labels_dir = original_labeled_data_root_dir / 'labels' / 'train'
+
+        linked_original_images = 0
+        for src_img_path in tqdm(original_images_dir.glob('*.*'), desc="链接原始图片"):
+            dst_link_path = images_train_dir / src_img_path.name
+            try:
+                os.symlink(src_img_path.resolve(), dst_link_path)
+                linked_original_images += 1
+            except Exception as e:
+                self.logger.error(f"创建符号链接失败: {src_img_path} -> {dst_link_path}. Error: {e}")
+
+        linked_original_labels = 0
+        for src_lbl_path in tqdm(original_labels_dir.glob('*.txt'), desc="链接原始标签"):
+            dst_link_path = labels_train_dir / src_lbl_path.name
+            try:
+                os.symlink(src_lbl_path.resolve(), dst_link_path)
+                linked_original_labels += 1
+            except Exception as e:
+                self.logger.error(f"创建符号链接失败: {src_lbl_path} -> {dst_link_path}. Error: {e}")
+
+        self.logger.info(f"链接了 {linked_original_images} 张原始图片和 {linked_original_labels} 个原始标签")
+
+        # 2. 链接无标签图片并复制伪标签
+        self.logger.info("链接无标签图片并复制伪标签...")
+
+        pseudo_pairs = self.match_images_and_labels(
+            images_dir=unlabeled_images_input_dir,
+            labels_dir=pseudo_labels_input_dir
+        )
+
+        added_pseudo_images = 0
+        added_pseudo_labels = 0
+        for image_path, label_path in tqdm(pseudo_pairs, desc="处理伪标签数据"):
+            if label_path.stat().st_size > 0:
+                try:
+                    # 为图片创建符号链接
+                    dst_img_link_path = images_train_dir / image_path.name
+                    os.symlink(image_path.resolve(), dst_img_link_path)
+                    added_pseudo_images += 1
+
+                    # 复制伪标签文件
+                    shutil.copy2(label_path, labels_train_dir / label_path.name)
+                    added_pseudo_labels += 1
+                except Exception as e:
+                    self.logger.error(f"处理伪标签样本 {image_path.name} 时失败: {e}")
+
+        self.logger.info(f"新增了 {added_pseudo_images} 张带有伪标签的图片和 {added_pseudo_labels} 个伪标签文件")
 
         # 3. 创建新的数据集配置文件 (new_dataset_yaml_path)
         self.logger.info("创建新的数据集配置文件...")

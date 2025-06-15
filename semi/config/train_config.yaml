@@ -7,7 +7,7 @@ project_root: D:/aWorkHome/project/python/yolov10
 datasets_base_dir: D:/aWorkHome/project/python/datasets/coco8
 
 initial_dataset_yaml: coco8.yaml  # 初始有标签数据集配置文件
-labeled_data_root_dir:  D:/aWorkHome/project/python/datasets/coco8                   # 原始有标签数据根目录
+labeled_data_root_dir:  D:/aWorkHome/project/python/datasets/coco8               # 原始有标签数据根目录
 unlabeled_images_dir: D:/aWorkHome/project/python/datasets/coco8/unlabeled      # 无标签图片目录
 pseudo_labels_output_root: D:/aWorkHome/project/python/datasets/coco8/generated_data/pseudo_labels  # 生成的伪标签的根目录 (脚本会在其下创建 iter_N/labels 子目录)
 consolidated_data_output_root: D:/aWorkHome/project/python/datasets/coco8/generated_data/consolidated_data # 生成的合并数据集的根目录 (脚本会在其下创建 iter_N 子目录)
@@ -36,17 +36,22 @@ fixed_validation_labels_path: D:/aWorkHome/project/python/datasets/coco8/labels/
 pretrained_model: yolov10n.pt  # 预训练模型，可选: yolov10n/s/m/l/x.pt
 
 # 迭代训练配置
-num_iterations: 1              # 总迭代轮数
-baseline_epochs: 6            # 基准模型训练轮数
+skip_baseline_training: false      # [新增] 设置为 true 来跳过基准模型训练
+baseline_model_path: D:/aWorkHome/project/python/yolov10/runs/train_baseline/exp/weights/best.pt  # [新增] 如果跳过训练，请提供已训练好的基准模型路径
+skip_baseline_eval: false         # [新增, 可选] 是否也跳过对这个提供的基准模型的初始评估
+
+num_iterations: 5              # 总迭代轮数
+baseline_epochs: 10            # 基准模型训练轮数
 retrain_epochs: 5            # 每轮迭代再训练轮数
-batch_size: 8                 # 批处理大小
+ema_decay: 0.9996            # EMA平滑系数，推荐值非常接近1
+batch_size: 8               # 批处理大小
 image_size: 640                # 训练图像尺寸
 
 # 伪标签生成配置
-pseudo_label_conf_threshold: 0.3  # 伪标签置信度阈值
+pseudo_label_conf_threshold: 0.5  # 伪标签置信度阈值
 
 # 学习率配置
-retrain_learning_rate: 0.001   # 微调时的学习率
+retrain_learning_rate: 0.0001   # 微调时的学习率
 
 # 早停和错误处理配置
 min_improvement_threshold: 0.001  # 最小性能提升阈值

@@ -5,12 +5,16 @@
 """
 
 import os
+os.environ['NO_ALBUMENTATIONS_UPDATE'] = '1'
+
 import sys
 import yaml
 import argparse
 import logging
 from pathlib import Path
 from datetime import datetime
+from copy import deepcopy
+from ultralytics import YOLOv10
 
 # 导入工具模块
 from semi.pseudo_label_generator import PseudoLabelGenerator
@@ -30,19 +34,17 @@ class IterativeTrainer:
         Args:
             config_path: 配置文件路径
         """
-        self.raw_config = ConfigManager.load_config(config_path)  # 先加载原始配置
-        self.config = self._resolve_paths(self.raw_config)  # 解析路径
+        self.raw_config = ConfigManager.load_config(config_path)
+        self.config = self._resolve_paths(self.raw_config)
         self.setup_logging()
-        # self.setup_directories() # 现在目录主要在 datasets_base_dir，按需创建
 
-        # 初始化各个组件
-        self.trainer = ModelTrainer(self.config['yolo_config'])
-        # 将完整config或需要的路径部分传递给其他组件
-        self.pseudo_generator = PseudoLabelGenerator(self.config)  # 或者只传 pseudo_label_config 和解析后的路径
-        self.data_consolidator = DataConsolidator(self.config)  # 或者只传 data_config 和解析后的路径
-        self.evaluator = ModelEvaluator(self.config['eval_config'])
+        self.trainer = ModelTrainer(self.config.get('yolo_config', {}))
+        self.pseudo_generator = PseudoLabelGenerator(self.config)
+        self.data_consolidator = DataConsolidator(self.config)
+        self.evaluator = ModelEvaluator(self.config.get('eval_config', {}))
 
-        # 训练状态
+        self.student_model = None
+        self.teacher_model = None
         self.current_iteration = 0
         self.best_mAP = 0.0
         self.model_weights_history = []
@@ -154,35 +156,31 @@ class IterativeTrainer:
 
         # 配置基准模型训练参数
         baseline_config = {
-            'data': self.config['initial_dataset_yaml_str'], # 使用解析后的绝对路径
-            'model': self.config['pretrained_model'],
+            'data': self.config['initial_dataset_yaml_str'],
             'epochs': self.config['baseline_epochs'],
-            'batch_size': self.config['batch_size'],
+            'batch': self.config['batch_size'],
             'imgsz': self.config['image_size'],
-            'project': str(project_for_yolo_runs / 'train_baseline'), # 路径调整
+            'project': str(Path(self.config['project_root']) / 'runs' / 'train_baseline'),
             'name': 'exp',
             'exist_ok': True
         }
 
-        # 执行训练
-        model_path = self.trainer.train(baseline_config)
+        # 直接将 self.student_model 对象传入训练，训练器不会启用EMA
+        model_path = self.trainer.train(self.student_model, baseline_config)
+
+        # 训练结束后，教师模型与训练后的学生模型权重对齐
+        self.teacher_model.model.load_state_dict(self.student_model.model.state_dict())
+        self.logger.info(f"基准模型训练完毕，教师模型已与学生模型同步。最佳权重: {model_path}")
+
         self.model_weights_history.append(model_path)
-
-        # 评估基准模型
-        metrics = self.evaluator.evaluate(
-            model_path,
-            self.config['initial_dataset_yaml_str']
-        )
-
-        self.logger.info(f"基准模型训练完成，mAP@0.5: {metrics['mAP50']:.4f}")
+        metrics = self.evaluator.evaluate(model_path, self.config['initial_dataset_yaml_str'])
+        self.logger.info(f"基准模型评估完成，mAP@0.5: {metrics['mAP50']:.4f}")
         self.best_mAP = metrics['mAP50']
-
         return model_path
 
-    def generate_pseudo_labels(self, model_path, iteration):
+    def generate_pseudo_labels(self, iteration):
         """
-        阶段2: 生成伪标签
-        使用当前模型对无标签数据进行预测，生成伪标签
+        阶段2: 教师模型生成伪标签
 
         Args:
             model_path: 模型权重路径
@@ -193,22 +191,21 @@ class IterativeTrainer:
         # 设置伪标签输出目录
         # 使用配置中 pseudo_labels_output_root
         pseudo_labels_iter_root = Path(self.config['pseudo_labels_output_root']) / f'iter_{iteration}'
-        pseudo_labels_dir = pseudo_labels_iter_root / 'labels'  # 伪标签存在labels子文件夹
-        pseudo_labels_dir.mkdir(parents=True, exist_ok=True)
+        pseudo_labels_dir_path = pseudo_labels_iter_root / 'labels'  # 伪标签存在labels子文件夹
+        pseudo_labels_dir_path.mkdir(parents=True, exist_ok=True)
 
         # 生成伪标签
         pseudo_label_config = {
-            'weights': model_path,
             'source_images': self.config['unlabeled_images_dir_str'],
-            'output_dir': str(pseudo_labels_dir),
+            'output_dir': str(pseudo_labels_dir_path),
             'conf_threshold': self.config['pseudo_label_conf_threshold'],
             'img_size': self.config['image_size']
         }
 
-        num_generated = self.pseudo_generator.generate(pseudo_label_config)
-        self.logger.info(f"生成了{num_generated}个伪标签文件")
-
-        return str(pseudo_labels_dir)
+        # 【关键】直接将教师模型对象传入
+        num_generated = self.pseudo_generator.generate(self.teacher_model, pseudo_label_config)
+        self.logger.info(f"处理了{num_generated}张图片以生成伪标签")
+        return str(pseudo_labels_dir_path)
 
     def consolidate_data(self, pseudo_labels_dir_str, iteration):
         """
@@ -244,7 +241,7 @@ class IterativeTrainer:
         self.logger.info(f"数据整合完成，新数据集配置文件: {dataset_yaml_output}")
         return dataset_yaml_output
 
-    def retrain_model(self, dataset_yaml, previous_model_path, iteration):
+    def retrain_model(self, current_model_path, dataset_yaml, iteration):
         """
         阶段4: 模型再训练
         使用合并后的数据集训练新的YOLOv10模型
@@ -257,25 +254,31 @@ class IterativeTrainer:
         self.logger.info(f"开始第{iteration}轮模型再训练")
 
         project_for_yolo_runs = Path(self.config['project_root']) / 'runs'  # 训练输出仍在项目内
+        # 确保学生模型从上一轮的最佳状态开始
+        self.student_model.load(current_model_path)
 
         # 配置再训练参数
         retrain_config = {
-            'data': dataset_yaml,  # 这是新生成的、指向外部数据的YAML绝对路径
-            'model': previous_model_path,
+            # ---- 基础训练参数 ----
+            'data': dataset_yaml,
             'epochs': self.config['retrain_epochs'],
             'batch_size': self.config['batch_size'],
             'imgsz': self.config['image_size'],
-            'project': str(project_for_yolo_runs / f'train_iter_{iteration}'),  # 路径调整
+            'project': str(project_for_yolo_runs / f'train_iter_{iteration}'),
             'name': 'exp',
-            'lr0': self.config['retrain_learning_rate'],
-            'exist_ok': True
+            'exist_ok': True,
+            'lr0': self.config.get('retrain_learning_rate', 0.001),  # 使用配置的学习率
+
+            # ---- EMA 相关参数 ----
+            'ema_teacher_enabled': True,  # 明确启用EMA
+            'ema_decay': self.config.get('ema_decay', 0.9996)  # 传递decay值
         }
 
-        # 执行训练
-        model_path = self.trainer.train(retrain_config)
-        self.model_weights_history.append(model_path)
+        new_student_model_path = self.trainer.train(self.student_model, retrain_config, self.teacher_model)
 
-        return model_path
+        self.model_weights_history.append(new_student_model_path)
+        return new_student_model_path
+
 
     def evaluate_and_decide(self, model_path, iteration):
         """
@@ -320,10 +323,32 @@ class IterativeTrainer:
         self.logger.info(f"总迭代轮数: {self.config['num_iterations']}")
 
         # 阶段0: 训练基准模型
-        baseline_model = self.train_baseline_model()
+        # 检查是否要跳过基准模型训练
+        # baseline_model_path = None
+        if self.config.get('skip_baseline_training', False):
+            baseline_model_path = self.config.get('baseline_model_path')
+            if not baseline_model_path or not Path(baseline_model_path).exists():
+                raise FileNotFoundError(f"Provided 'baseline_model_path' is invalid: {baseline_model_path}")
+
+            self.logger.info(f"跳过训练，直接加载基准模型: {baseline_model_path}")
+            self.student_model = YOLOv10(baseline_model_path)
+            self.teacher_model = deepcopy(self.student_model)
+
+            self.model_weights_history.append(baseline_model_path)
+
+            if not self.config.get('skip_baseline_eval', False):
+                metrics = self.evaluator.evaluate(baseline_model_path, self.config['initial_dataset_yaml_str'])
+                self.best_mAP = metrics.get('mAP50', 0.0)
+                self.logger.info(f"提供的基准模型初始 mAP@0.5: {self.best_mAP:.4f}")
+            else:
+                self.best_mAP = 0.0
+        else:
+            self.student_model = YOLOv10(self.config['pretrained_model'])
+            self.teacher_model = deepcopy(self.student_model)
+            baseline_model_path = self.train_baseline_model()
 
         # 迭代训练循环
-        current_model = baseline_model
+        current_model_path = baseline_model_path
 
         for iteration in range(1, self.config['num_iterations'] + 1):
             self.current_iteration = iteration
@@ -331,41 +356,39 @@ class IterativeTrainer:
             self.logger.info(f"开始第 {iteration}/{self.config['num_iterations']} 轮迭代")
 
             try:
-                # 阶段2: 生成伪标签
-                pseudo_labels_dir = self.generate_pseudo_labels(current_model, iteration)
+                # 阶段2: 生成伪标签 (不再传递模型路径，内部使用self.teacher_model)
+                pseudo_labels_dir = self.generate_pseudo_labels(iteration)
 
                 # 阶段3: 数据整合
                 dataset_yaml = self.consolidate_data(pseudo_labels_dir, iteration)
 
-                # 阶段4: 模型再训练
-                new_model = self.retrain_model(dataset_yaml, current_model, iteration)
+                # 阶段4: 模型再训练 (传入的是上一轮学生模型的路径)
+                new_student_model_path = self.retrain_model(current_model_path, dataset_yaml, iteration)
 
-                # 阶段5: 评估并决定是否继续
-                should_continue = self.evaluate_and_decide(new_model, iteration)
+                # 阶段5: 评估并决定是否继续 (评估的是新的学生模型)
+                should_continue = self.evaluate_and_decide(new_student_model_path, iteration)
 
-                # 更新当前模型
-                current_model = new_model
+                # 更新当前模型路径以进行下一轮训练
+                current_model_path = new_student_model_path
 
                 # 如果性能不再提升，提前停止
-                if not should_continue and self.config['early_stopping']:
-                    self.logger.info("触发早停机制，结束训练")
+                if not should_continue and self.config.get('early_stopping', True) and iteration > 1:
+                    self.logger.info(f"在第{iteration}轮性能未提升，触发早停机制")
                     break
 
             except Exception as e:
-                self.logger.error(f"第{iteration}轮迭代出错: {str(e)}")
-                if self.config['continue_on_error']:
-                    self.logger.info("继续下一轮迭代")
-                    continue
-                else:
+
+                self.logger.error(f"第{iteration}轮迭代出错: {e}", exc_info=True)  # exc_info=True 打印更详细的traceback
+                if not self.config.get('continue_on_error', False):
                     raise
 
-        # 训练完成，输出总结
-        self.logger.info("\n" + "=" * 50)
-        self.logger.info("半监督迭代训练完成！")
-        self.logger.info(f"最佳 mAP@0.5: {self.best_mAP:.4f}")
-        self.logger.info(f"训练历史模型权重:")
-        for i, weights in enumerate(self.model_weights_history):
-            self.logger.info(f"  第{i}轮: {weights}")
+            # 训练完成，输出总结
+            self.logger.info("\n" + "=" * 50)
+            self.logger.info("半监督迭代训练完成！")
+            self.logger.info(f"最佳 mAP@0.5: {self.best_mAP:.4f}")
+            self.logger.info(f"训练历史模型权重:")
+            for i, weights in enumerate(self.model_weights_history):
+                self.logger.info(f"  第{i}轮: {weights}")
 
 
 def main():
