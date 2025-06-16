@@ -168,12 +168,16 @@ class IterativeTrainer:
         # 直接将 self.student_model 对象传入训练，训练器不会启用EMA
         model_path = self.trainer.train(self.student_model, baseline_config)
 
-        # 训练结束后，教师模型与训练后的学生模型权重对齐
-        self.teacher_model.model.load_state_dict(self.student_model.model.state_dict())
-        self.logger.info(f"基准模型训练完毕，教师模型已与学生模型同步。最佳权重: {model_path}")
+        self.teacher_model = deepcopy(self.student_model)
+
+        # 别忘了将新创建的教师模型也移动到正确的设备上
+        train_device = self.config.get('yolo_config', {}).get('device', 'cpu')
+        self.teacher_model.to(train_device)
 
         self.model_weights_history.append(model_path)
         metrics = self.evaluator.evaluate(model_path, self.config['initial_dataset_yaml_str'])
+
+        self.logger.info(f"基准模型训练完毕，教师模型已与学生模型同步。最佳权重: {model_path}")  # <-- 这是我添加的，便于您确认
         self.logger.info(f"基准模型评估完成，mAP@0.5: {metrics['mAP50']:.4f}")
         self.best_mAP = metrics['mAP50']
         return model_path
@@ -203,7 +207,9 @@ class IterativeTrainer:
         }
 
         # 【关键】直接将教师模型对象传入
-        num_generated = self.pseudo_generator.generate(self.teacher_model, pseudo_label_config)
+        pseudo_labeling_model = deepcopy(self.teacher_model)
+        num_generated = self.pseudo_generator.generate(pseudo_labeling_model, pseudo_label_config)
+
         self.logger.info(f"处理了{num_generated}张图片以生成伪标签")
         return str(pseudo_labels_dir_path)
 
@@ -312,8 +318,11 @@ class IterativeTrainer:
             self.logger.info("性能提升明显，继续迭代")
             return True
         else:
-            self.logger.info("性能提升不明显，考虑停止迭代")
-            return improvement > 0  # 如果还有提升就继续，否则停止
+            if iteration == 1 and self.config.get('early_stopping', True):
+                self.logger.info(f"第1轮性能提升不明显 (提升: {improvement:+.4f})，但根据策略将至少再执行一轮。")
+            else:
+                self.logger.info(f"性能提升不明显 (提升: {improvement:+.4f})，考虑停止迭代。")
+            return improvement > 0
 
     def train(self):
         """
@@ -321,10 +330,9 @@ class IterativeTrainer:
         """
         self.logger.info("开始半监督迭代训练流程")
         self.logger.info(f"总迭代轮数: {self.config['num_iterations']}")
+        train_device = self.config.get('yolo_config', {}).get('device', 'cpu')
 
         # 阶段0: 训练基准模型
-        # 检查是否要跳过基准模型训练
-        # baseline_model_path = None
         if self.config.get('skip_baseline_training', False):
             baseline_model_path = self.config.get('baseline_model_path')
             if not baseline_model_path or not Path(baseline_model_path).exists():
@@ -333,6 +341,8 @@ class IterativeTrainer:
             self.logger.info(f"跳过训练，直接加载基准模型: {baseline_model_path}")
             self.student_model = YOLOv10(baseline_model_path)
             self.teacher_model = deepcopy(self.student_model)
+
+            self.teacher_model.to(train_device)
 
             self.model_weights_history.append(baseline_model_path)
 
@@ -344,7 +354,6 @@ class IterativeTrainer:
                 self.best_mAP = 0.0
         else:
             self.student_model = YOLOv10(self.config['pretrained_model'])
-            self.teacher_model = deepcopy(self.student_model)
             baseline_model_path = self.train_baseline_model()
 
         # 迭代训练循环

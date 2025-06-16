@@ -39,7 +39,7 @@ class EMAUpdate:
         with torch.no_grad():
             # 在训练的第一个step，直接将学生权重复制给教师，以确保完全同步
             if self.updates == 0:
-                self.teacher_model_module.load_state_dict(student_model_module.state_dict())
+                self.teacher_model_module = deepcopy(student_model_module)
                 self.logger.info("EMA Teacher初始化完成，已与学生模型同步。")
 
             # 使用去偏（de-bias）的衰减率，这在训练早期更稳定
@@ -111,7 +111,9 @@ class ModelTrainer:
                 # 训练结束后保存教师模型权重（可选，但推荐）
                 teacher_model_instance.save(save_dir / 'weights' / 'teacher_best.pt')
                 self.logger.info(f"教师模型保存在: {save_dir / 'weights' / 'teacher_best.pt'}")
-                student_model.clear_callbacks("on_train_batch_end")
+                if "on_train_batch_end" in student_model.callbacks:
+                    self.logger.info("手动清除 on_train_batch_end 回调...")
+                    student_model.callbacks["on_train_batch_end"] = []
 
             return str(best_model_path)
 
