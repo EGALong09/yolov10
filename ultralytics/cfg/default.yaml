@@ -125,3 +125,12 @@ cfg: # (str, optional) for overriding defaults.yaml
 
 # Tracker settings ------------------------------------------------------------------------------------------------------
 tracker: botsort.yaml # (str) tracker type, choices=[botsort.yaml, bytetrack.yaml]
+
+# NWDLoss config ---------------------------------------------------------------------------------------------------------
+nwdloss: False #是否使用NWDLoss
+iou_ratio: 0.5 #IoU损失的权重比，默认为0.5，表示NWDLoss和IoU损失各占50%
+
+# FixMatch-style strong augmentation -----------------------------------------------------------------------------------
+use_strong_augment: ture
+
+

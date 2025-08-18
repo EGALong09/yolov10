@@ -1,5 +1,14 @@
 # Ultralytics YOLO 🚀, AGPL-3.0 license
 
+# 伪标签动态阈值后增加增强策略筛选
+
+try:
+    from semi.strong_augment import StrongAugment
+    from PIL import Image
+    FIXMATCH_AUGMENT_AVAILABLE = True
+except ImportError:
+    FIXMATCH_AUGMENT_AVAILABLE = False
+
 import math
 import random
 from copy import deepcopy
@@ -369,7 +378,7 @@ class RandomPerspective:
     """
 
     def __init__(
-        self, degrees=0.0, translate=0.1, scale=0.5, shear=0.0, perspective=0.0, border=(0, 0), pre_transform=None
+        self, degrees=0.0, translate=0.1, scale=0.5, shear=0.0, perspective=0.0, border=(0, 0), pre_transform=None, use_strong_augment=False
     ):
         """Initializes RandomPerspective object with transformation parameters."""
 
@@ -380,6 +389,7 @@ class RandomPerspective:
         self.perspective = perspective
         self.border = border  # mosaic border
         self.pre_transform = pre_transform
+        self.use_strong_augment = use_strong_augment
 
     def affine_transform(self, img, border):
         """
@@ -553,6 +563,20 @@ class RandomPerspective:
         i = self.box_candidates(
             box1=instances.bboxes.T, box2=new_instances.bboxes.T, area_thr=0.01 if len(segments) else 0.10
         )
+
+        # 检查是否应该应用强增强
+        if self.use_strong_augment and FIXMATCH_AUGMENT_AVAILABLE and len(cls[i]) > 0:
+            # 将图像从OpenCV格式(BGR, numpy)转为PIL格式(RGB)
+            im_pil = Image.fromarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
+
+            # 初始化并应用强增强 (这里的参数可以后续调整)
+            strong_augment_transform = StrongAugment(n=2, m=10, cutout_n=1, cutout_len=32)
+            im_pil_aug = strong_augment_transform(im_pil)
+
+            # 将增强后的图像转回OpenCV格式
+            img = cv2.cvtColor(np.array(im_pil_aug), cv2.COLOR_RGB2BGR)
+        # --- END of INSERTED CODE ---
+
         labels["instances"] = new_instances[i]
         labels["cls"] = cls[i]
         labels["img"] = img
@@ -972,6 +996,8 @@ class Format:
 
 def v8_transforms(dataset, imgsz, hyp, stretch=False):
     """Convert images to a size suitable for YOLOv8 training."""
+    use_strong_augment = getattr(hyp, 'use_strong_augment', False)
+
     pre_transform = Compose(
         [
             Mosaic(dataset, imgsz=imgsz, p=hyp.mosaic),
@@ -983,6 +1009,7 @@ def v8_transforms(dataset, imgsz, hyp, stretch=False):
                 shear=hyp.shear,
                 perspective=hyp.perspective,
                 pre_transform=None if stretch else LetterBox(new_shape=(imgsz, imgsz)),
+                use_strong_augment=use_strong_augment,
             ),
         ]
     )
@@ -1252,3 +1279,4 @@ class ToTensor:
         im = im.half() if self.half else im.float()  # uint8 to fp16/32
         im /= 255.0  # 0-255 to 0.0-1.0
         return im
+

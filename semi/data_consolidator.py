@@ -115,6 +115,7 @@ class DataConsolidator:
         original_labeled_data_root_dir = Path(consolidate_run_config['original_labeled_data_root_dir'])
         unlabeled_images_input_dir = Path(consolidate_run_config['unlabeled_images_input_dir'])
         pseudo_labels_input_dir = Path(consolidate_run_config['pseudo_labels_input_dir'])
+        pseudo_labels_txt_dir = pseudo_labels_input_dir / 'labels'
 
         consolidated_output_dir = Path(consolidate_run_config['consolidated_output_dir'])  # 合并数据的根目录
         new_dataset_yaml_path = Path(consolidate_run_config['new_dataset_yaml_path'])  # 新YAML的保存位置
@@ -133,6 +134,7 @@ class DataConsolidator:
 
         images_train_dir.mkdir(parents=True, exist_ok=True)
         labels_train_dir.mkdir(parents=True, exist_ok=True)
+        (consolidated_output_dir / 'labels_meta' / 'train').mkdir(parents=True, exist_ok=True)
 
         self.logger.info("开始整合数据...")
 
@@ -167,7 +169,7 @@ class DataConsolidator:
 
         pseudo_pairs = self.match_images_and_labels(
             images_dir=unlabeled_images_input_dir,
-            labels_dir=pseudo_labels_input_dir
+            labels_dir=pseudo_labels_txt_dir
         )
 
         added_pseudo_images = 0

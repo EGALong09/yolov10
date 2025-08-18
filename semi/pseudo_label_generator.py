@@ -6,6 +6,7 @@
 import os
 import cv2
 import torch
+import json
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -90,7 +91,7 @@ class PseudoLabelGenerator:
 
     def process_single_image(self, model, image_path, conf_threshold):
         """
-        处理单张图片并生成伪标签
+        处理单张图片并生成伪标签，不仅返回YOLO标签，还返回包含置信度的元数据。
 
         Args:
             model: YOLOv10模型
@@ -108,131 +109,35 @@ class PseudoLabelGenerator:
                 return []
 
             img_height, img_width = img.shape[:2]
-
-            # 执行推理
             results = model(image_path, conf=conf_threshold, verbose=False)
 
             # 提取检测结果
-            boxes = []
+            boxes_for_yolo = []
+            objects_metadata = []
             for r in results:
-
-                if r.boxes is not None:
-
+                if hasattr(r, 'boxes') and r.boxes is not None:
                     for box in r.boxes:
-                        # 获取坐标、置信度和类别
                         x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                        conf = box.conf[0].cpu().numpy()
-                        cls = box.cls[0].cpu().numpy()
+                        conf = float(box.conf[0].cpu().numpy())
+                        cls = int(box.cls[0].cpu().numpy())
 
                         if conf >= conf_threshold:
-                            boxes.append((x1, y1, x2, y2, conf, cls))
+                            boxes_for_yolo.append((x1, y1, x2, y2, conf, cls))
+                            pixel_w = x2 - x1
+                            pixel_h = y2 - y1
+                            objects_metadata.append({
+                                "class_id": cls,
+                                "confidence": round(conf, 4),
+                                "bbox_pixels": [round(val) for val in [x1, y1, x2, y2]],
+                                "area": int(pixel_w * pixel_h)
+                            })
 
-            # 转换为YOLO格式
-            yolo_labels = self.convert_to_yolo_format(boxes, img_width, img_height)
-
-            return yolo_labels
+            yolo_labels = self.convert_to_yolo_format(boxes_for_yolo, img_width, img_height)
+            return yolo_labels, objects_metadata
 
         except Exception as e:
             self.logger.error(f"处理图片 {image_path} 时出错: {e}")
-            return []
-
-    # def process_single_image(self, model, image_path, conf_threshold):
-    #     try:
-    #         img = cv2.imread(str(image_path))
-    #         if img is None:
-    #             self.logger.warning(f"无法读取图片: {image_path}")
-    #             return []
-    #         img_height, img_width = img.shape[:2]
-    #
-    #         results = model(image_path, conf=conf_threshold, verbose=False)  # 推理调用
-    #
-    #         # !!!!! ===== 关键调试块 - 开始 ===== !!!!!
-    #         # 使用非常独特的前缀，并直接print，同时捕获print自身的异常
-    #         debug_prefix = f"@@@ DEBUG_PROCESS_IMAGE - {image_path.name} @@@ "
-    #         try:
-    #             print(f"{debug_prefix}Type of 'results': {type(results)}")
-    #             if results is not None:
-    #                 print(
-    #                     f"{debug_prefix}Length of 'results' (if list/iterable): {len(results) if hasattr(results, '__len__') else 'Not a list/len not applicable'}")
-    #                 # 尝试打印 results 的一部分，避免过长输出
-    #                 print(f"{debug_prefix}Content of 'results' (first 500 chars): {str(results)[:500]}")
-    #
-    #                 if hasattr(results, '__iter__') and not isinstance(results, (str, bytes)):  # 确保是可迭代对象且不是字符串
-    #                     for i_debug, r_debug in enumerate(results):
-    #                         print(f"{debug_prefix}  Iterating 'results', item_index: {i_debug}")
-    #                         print(f"{debug_prefix}    Type of 'r_debug' (item from results): {type(r_debug)}")
-    #                         if hasattr(r_debug, 'boxes'):
-    #                             print(f"{debug_prefix}    Type of 'r_debug.boxes': {type(r_debug.boxes)}")
-    #                             print(
-    #                                 f"{debug_prefix}    Content of 'r_debug.boxes' (first 500 chars): {str(r_debug.boxes)[:500]}")
-    #                             if isinstance(r_debug.boxes, dict):
-    #                                 print(f"{debug_prefix}    !!!! 'r_debug.boxes' IS A DICT !!!!")
-    #                         else:
-    #                             print(f"{debug_prefix}    'r_debug' object does NOT have a 'boxes' attribute.")
-    #                         if i_debug == 0:  # 通常我们只关心第一个结果对象的具体情况
-    #                             print(f"{debug_prefix}  (Stopping debug iteration after first item of results)")
-    #                             break
-    #                 else:
-    #                     print(f"{debug_prefix}'results' is not iterable or is a string/bytes.")
-    #             else:
-    #                 print(f"{debug_prefix}'results' is None.")
-    #         except Exception as e_debug:
-    #             print(f"{debug_prefix}EXCEPTION DURING DEBUG PRINTING: {str(e_debug)}")
-    #         # !!!!! ===== 关键调试块 - 结束 ===== !!!!!
-    #
-    #         boxes = []
-    #         # 注意：这里的 for r in results 循环是您原来的代码，可能会再次触发错误
-    #         # 上面的调试块应该已经为我们提供了线索
-    #         for r in results:
-    #             if r.boxes is not None:
-    #                 for box in r.boxes:
-    #                     x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-    #                     conf = box.conf[0].cpu().numpy()
-    #                     cls = box.cls[0].cpu().numpy()
-    #                     if conf >= conf_threshold:
-    #                         boxes.append((x1, y1, x2, y2, conf, cls))
-    #
-    #         yolo_labels = self.convert_to_yolo_format(boxes, img_width, img_height)
-    #         return yolo_labels
-    #
-    #     except Exception as e:  # 这是您原来的异常捕获
-    #         self.logger.error(f"处理图片 {image_path} 时出错: {e}")
-    #         # !!!!! ===== 在捕获异常时也尝试打印上下文信息 ===== !!!!!
-    #         error_context_prefix = f"@@@ ERROR_CONTEXT - {image_path.name} @@@ "
-    #         try:
-    #             print(f"{error_context_prefix}Exception type: {type(e)}, Message: {str(e)}")
-    #             if 'results' in locals():  # 检查 'results' 是否已定义
-    #                 print(f"{error_context_prefix}Context - Type of 'results': {type(results)}")
-    #                 if results is not None:
-    #                     print(
-    #                         f"{error_context_prefix}Context - Content of 'results' (first 500 chars): {str(results)[:500]}")
-    #                     if hasattr(results, '__iter__') and not isinstance(results, (str, bytes)):
-    #                         for i_err_ctx, r_err_ctx in enumerate(results):
-    #                             print(f"{error_context_prefix}  Context - Iterating 'results', item_index: {i_err_ctx}")
-    #                             print(f"{error_context_prefix}    Context - Type of 'r_err_ctx': {type(r_err_ctx)}")
-    #                             if hasattr(r_err_ctx, 'boxes'):
-    #                                 print(
-    #                                     f"{error_context_prefix}    Context - Type of 'r_err_ctx.boxes': {type(r_err_ctx.boxes)}")
-    #                                 print(
-    #                                     f"{error_context_prefix}    Context - Content of 'r_err_ctx.boxes' (first 500 chars): {str(r_err_ctx.boxes)[:500]}")
-    #                             else:
-    #                                 print(
-    #                                     f"{error_context_prefix}    Context - 'r_err_ctx' object does NOT have a 'boxes' attribute.")
-    #                             if i_err_ctx == 0:
-    #                                 print(
-    #                                     f"{error_context_prefix}  Context - (Stopping context iteration after first item)")
-    #                                 break
-    #                     else:
-    #                         print(
-    #                             f"{error_context_prefix}Context - 'results' is not iterable or is string/bytes in error block.")
-    #                 else:
-    #                     print(f"{error_context_prefix}Context - 'results' is None in error block.")
-    #             else:
-    #                 print(f"{error_context_prefix}Context - 'results' was not defined when exception occurred.")
-    #         except Exception as e_print_err_ctx:
-    #             print(f"{error_context_prefix}EXCEPTION DURING PRINTING ERROR CONTEXT: {str(e_print_err_ctx)}")
-    #         # !!!!! ===== 结束在捕获异常时的信息打印 ===== !!!!!
-    #         return []
+            return [], []
 
     def generate(self, model, config):
         """
@@ -292,6 +197,73 @@ class PseudoLabelGenerator:
         self.logger.info(f"伪标签生成完成，共生成 {generated_count} 个包含目标的标签文件")
 
         return len(image_files)  # 返回处理的图片总数
+
+    def generate_with_flexmatch_filter(self, model, config, iteration, thresholds_path):
+        """
+        [核心方法] 这是您在半监督循环中应该调用的方法。
+        它加载在线训练最终生成的动态阈值，并用它来筛选伪标签。
+        """
+        # 1. 加载配置和动态阈值
+        # 这个阈值是“海选”阈值，可以设置得相对低一些，例如0.25
+        conf_threshold = config['pseudo_label_conf_threshold']
+        source_images_dir = Path(config['unlabeled_images_dir'])
+
+        # 动态构建输出路径，严格遵循您的config设计
+        output_root = Path(config['pseudo_labels_output_root'])
+        output_dir = output_root / f'iter_{iteration}'
+        labels_output_dir = output_dir / 'labels'
+        meta_output_dir = output_dir / 'labels_meta'
+        labels_output_dir.mkdir(parents=True, exist_ok=True)
+        meta_output_dir.mkdir(parents=True, exist_ok=True)
+
+        # 加载在线训练最终生成的阈值文件
+        try:
+            with open(thresholds_path, 'r') as f:
+                dynamic_thresholds = json.load(f)
+            self.logger.info(f"成功加载动态阈值文件: {thresholds_path}")
+        except FileNotFoundError:
+            self.logger.error(f"错误: 动态阈值文件不存在于 {thresholds_path}。请确保在线训练已正确生成此文件。")
+            raise
+
+        # 2. 遍历所有无标签图片
+        image_files = sorted(list(source_images_dir.glob('*.*')))
+        self.logger.info(f"找到 {len(image_files)} 张图片待处理")
+
+        model.model.eval()
+        self.logger.info("模型已设置为评估模式 (eval mode) 以生成伪标签。")
+
+        generated_count = 0
+        for image_path in tqdm(image_files, desc=f"生成并筛选第 {iteration} 轮伪标签"):
+
+            # 3. 生成候选伪标签和元数据
+            candidate_labels, candidate_metadata = self.process_single_image(model, image_path, conf_threshold)
+            if not candidate_metadata:
+                continue
+
+            # 4. 使用动态阈值进行筛选
+            reliable_labels_indices = [
+                idx for idx, meta_obj in enumerate(candidate_metadata)
+                if meta_obj['confidence'] >= dynamic_thresholds[meta_obj['class_id']]
+            ]
+
+            # 5. 只保存通过筛选的高质量伪标签
+            if reliable_labels_indices:
+                final_yolo_labels = [candidate_labels[i] for i in reliable_labels_indices]
+                final_metadata = [candidate_metadata[i] for i in reliable_labels_indices]
+
+                base_filename = image_path.stem
+                label_path = labels_output_dir / f"{base_filename}.txt"
+                meta_path = meta_output_dir / f"{base_filename}.json"
+
+                with open(label_path, 'w', encoding='utf-8') as f:
+                    f.write('\n'.join(final_yolo_labels))
+                with open(meta_path, 'w', encoding='utf-8') as f:
+                    json.dump(final_metadata, f, indent=2)
+
+                generated_count += 1
+
+        self.logger.info(f"伪标签筛选和生成完成，共为 {generated_count} 张图片生成了高质量伪标签。")
+        return str(output_dir)
 
     def batch_generate(self, config, batch_size=32):
         """

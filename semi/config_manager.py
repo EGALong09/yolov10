@@ -77,11 +77,16 @@ class ConfigManager:
 
         missing_fields = []
         for field in required_fields:
-            if field not in config:
+            if field not in config or not config[field]:
                 missing_fields.append(field)
 
         if missing_fields:
             raise ValueError(f"配置文件缺少必要字段: {missing_fields}")
+
+        if 'yolo_config' in config and 'nwdloss' not in config['yolo_config']:
+            logging.warning("配置文件中未找到 'nwdloss'，将使用默认值。")
+        if 'yolo_config' in config and 'iou_ratio' not in config['yolo_config']:
+            logging.warning("配置文件中未找到 'iou_ratio'，将使用默认值。")
 
     @staticmethod
     def set_defaults(config):
@@ -95,6 +100,7 @@ class ConfigManager:
             包含默认值的配置字典
         """
         defaults = {
+            'use_semi_supervised_learning': True,
             # 训练参数默认值
             'retrain_learning_rate': 0.001,
             'min_improvement_threshold': 0.001,
@@ -113,6 +119,8 @@ class ConfigManager:
                 'weight_decay': 0.0005,
                 'warmup_epochs': 3.0,
                 'close_mosaic': 10,
+                'nwdloss': False,  # 默认不启用NWD Loss
+                'iou_ratio': 0.5,  # 默认比例
                 'augment': True,
                 'augment_params': {
                     'hsv_h': 0.015,

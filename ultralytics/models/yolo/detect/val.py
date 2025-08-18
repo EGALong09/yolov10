@@ -98,11 +98,17 @@ class DetectionValidator(BaseValidator):
         """Prepares a batch of images and annotations for validation."""
         idx = batch["batch_idx"] == si
         cls = batch["cls"][idx].squeeze(-1)
+
+        # 强制确保 cls 张量至少是1维的，以防止对0维张量进行非法操作。
+        if cls.ndim == 0:
+            cls = cls.unsqueeze(0)
+
         bbox = batch["bboxes"][idx]
         ori_shape = batch["ori_shape"][si]
         imgsz = batch["img"].shape[2:]
         ratio_pad = batch["ratio_pad"][si]
-        if len(cls):
+        # if len(cls):
+        if cls.numel(): # 加固 ultralytics 框架本身那一行脆弱的代码，让它能够优雅地处理一种意外情况。
             bbox = ops.xywh2xyxy(bbox) * torch.tensor(imgsz, device=self.device)[[1, 0, 1, 0]]  # target boxes
             ops.scale_boxes(imgsz, bbox, ori_shape, ratio_pad=ratio_pad)  # native-space labels
         return dict(cls=cls, bbox=bbox, ori_shape=ori_shape, imgsz=imgsz, ratio_pad=ratio_pad)
@@ -127,7 +133,8 @@ class DetectionValidator(BaseValidator):
             )
             pbatch = self._prepare_batch(si, batch)
             cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
-            nl = len(cls)
+            # nl = len(cls)
+            nl = cls.numel() # 加固 ultralytics 框架本身那一行脆弱的代码，让它能够优雅地处理一种意外情况。
             stat["target_cls"] = cls
             if npr == 0:
                 if nl:

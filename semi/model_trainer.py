@@ -9,49 +9,15 @@ from copy import deepcopy
 import torch
 import subprocess
 import logging
+import functools
 from pathlib import Path
 import yaml
 import json
 from ultralytics import YOLOv10
-
-
-class EMAUpdate:
-    """在训练过程中更新EMA教师模型的回调。"""
-
-    def __init__(self, teacher_model, decay=0.9996):
-        """
-        初始化EMA更新器。
-
-        Args:
-            teacher_model: 教师模型实例 (完整的YOLOv10对象)
-            decay: EMA平滑系数。
-        """
-        # 【关键】我们操作的是YOLOv10对象内部的 nn.Module
-        self.teacher_model_module = teacher_model.model
-        self.decay = decay  # 【关键】使用从外部传入的decay值
-        self.updates = 0
-        self.logger = logging.getLogger(__name__)
-
-    def __call__(self, trainer):
-        # trainer.model 是学生模型的底层 nn.Module
-        student_model_module = trainer.model
-
-        with torch.no_grad():
-            # 在训练的第一个step，直接将学生权重复制给教师，以确保完全同步
-            if self.updates == 0:
-                self.teacher_model_module = deepcopy(student_model_module)
-                self.logger.info("EMA Teacher初始化完成，已与学生模型同步。")
-
-            # 使用去偏（de-bias）的衰减率，这在训练早期更稳定
-            self.updates += 1
-            decay = self.decay * (1 - math.exp(-self.updates / 2000))
-
-            student_sd = student_model_module.state_dict()
-            teacher_sd = self.teacher_model_module.state_dict()
-
-            for key in teacher_sd:
-                if teacher_sd[key].is_floating_point():
-                    teacher_sd[key].data.copy_(decay * teacher_sd[key].data + (1 - decay) * student_sd[key].data)
+from .callbacks import update_flexmatch_thresholds_on_epoch_end
+import ultralytics.data.build as build
+from .custom_dataset import FlexMatchInspiredDataset
+from semi.callbacks import EMAUpdate, update_thresholds_standalone
 
 
 class ModelTrainer:
@@ -64,55 +30,66 @@ class ModelTrainer:
     def train(self, student_model_instance, train_config, teacher_model_instance=None):
         """
         训练YOLOv10模型。
-        直接接收并训练传入的模型对象。
+        这个方法现在只负责传递参数和调用训练，所有模式判断逻辑已移至 semi_train.py。
         """
+        # 步骤 1: 从模型对象上安全地读取我们之前在 semi_train.py 中附加的自定义参数
+        custom_args = getattr(student_model_instance, 'custom_args', {})
+
+        # 步骤 2: 使用 functools.partial 创建一个“预设”了自定义参数的数据集类
+        # 这样，当 ultralytics 内部调用它时，我们的参数会自动传入
+        PatchedDataset = functools.partial(FlexMatchInspiredDataset, **custom_args)
+
+        # 步骤 3: 进行猴子补丁，用我们预设好的类替换掉原始的类
+        original_dataset_class = build.YOLODataset
+        build.YOLODataset = PatchedDataset
+        self.logger.info("已通过猴子补丁注入自定义参数到 FlexMatchInspiredDataset。")
+
         try:
-            # 【关键】直接使用传入的模型对象，不再重新创建
             student_model = student_model_instance
 
-            # 如果传入了教师模型，则启用EMA
-            if teacher_model_instance:
-                decay = train_config.get('ema_decay', 0.9996)
-                self.logger.info(f"启用EMA Teacher模式，decay={decay}")
+            # 步骤 4: 合并所有配置项到一个字典中
+            merged_args = self.yolo_config.copy()
+            merged_args.update(train_config)
 
-                if student_model is teacher_model_instance:
-                    raise ValueError("学生模型和教师模型不能是同一个对象实例！")
-
-                # 创建回调实例，并传入教师模型实例
-                ema_updater = EMAUpdate(teacher_model_instance, decay=decay)
-                student_model.add_callback("on_train_batch_end", ema_updater)
-
-            # 准备并净化传递给ultralytics的参数
-            train_args = self.yolo_config.copy()
-            train_args.update(train_config)
-
-            known_args = [
+            # 步骤 5: 定义一个只包含 ultralytics 标准参数的“纯净白名单”
+            standard_known_args = [
                 'data', 'epochs', 'batch', 'imgsz', 'project', 'name', 'exist_ok', 'patience',
                 'save', 'save_period', 'device', 'workers', 'amp', 'verbose', 'seed', 'lr0',
                 'optimizer', 'momentum', 'weight_decay', 'warmup_epochs', 'close_mosaic',
                 'hsv_h', 'hsv_s', 'hsv_v', 'degrees', 'translate', 'scale', 'shear',
-                'perspective', 'flipud', 'fliplr', 'mosaic', 'mixup', 'copy_paste', 'augment'
+                'perspective', 'flipud', 'fliplr', 'mosaic', 'mixup', 'copy_paste', 'augment',
+                'nwdloss', 'iou_ratio'
             ]
 
-            # 为了确保100%纯净，我们只挑选白名单里的参数
-            final_train_args = {key: train_args[key] for key in known_args if key in train_args}
+            # 步骤 6: 使用“纯净白名单”进行过滤，确保 final_train_args 不含任何自定义参数
+            final_train_args = {key: val for key, val in merged_args.items() if key in standard_known_args}
 
-            self.logger.info(f"开始训练，最终传递参数: {final_train_args}")
+            # 处理EMA和回调（这部分逻辑不变）
+            if teacher_model_instance:
+                # 检查必要的自定义参数是否存在
+                if 'flexmatch_config' not in custom_args or 'unlabeled_images_dir' not in custom_args:
+                    raise ValueError("半监督模式下，'flexmatch_config' 和 'unlabeled_images_dir' 必须被提供。")
+
+                decay = merged_args.get('ema_decay', 0.9996)
+                ema_updater = EMAUpdate(teacher_model_instance, decay=decay)
+                student_model.add_callback("on_train_batch_end", ema_updater)
+                student_model.add_callback("on_epoch_end", update_flexmatch_thresholds_on_epoch_end)
+
+            self.logger.info(f"开始训练，传递给 model.train 的标准参数: {final_train_args}")
+
+            # 步骤 7: 使用这个“纯净”的参数字典来调用训练，即可解决报错
             results = student_model.train(**final_train_args)
 
             save_dir = Path(train_config['project']) / train_config['name']
             best_model_path = save_dir / 'weights' / 'best.pt'
             if not best_model_path.exists():
                 best_model_path = save_dir / 'weights' / 'last.pt'
-
             self.logger.info(f"训练完成，学生模型保存在: {best_model_path}")
 
             if teacher_model_instance:
-                # 训练结束后保存教师模型权重（可选，但推荐）
                 teacher_model_instance.save(save_dir / 'weights' / 'teacher_best.pt')
                 self.logger.info(f"教师模型保存在: {save_dir / 'weights' / 'teacher_best.pt'}")
                 if "on_train_batch_end" in student_model.callbacks:
-                    self.logger.info("手动清除 on_train_batch_end 回调...")
                     student_model.callbacks["on_train_batch_end"] = []
 
             return str(best_model_path)
@@ -120,6 +97,13 @@ class ModelTrainer:
         except Exception as e:
             self.logger.error(f"训练过程中出错: {e}", exc_info=True)
             raise
+
+        finally:
+            build.YOLODataset = original_dataset_class
+            self.logger.info("已恢复原始的YOLODataset类。")
+            # 清理附加的属性，保持模型对象干净
+            if hasattr(student_model_instance, 'custom_args'):
+                del student_model_instance.custom_args
 
     def train_with_cli(self, train_config):
         """

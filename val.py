@@ -25,12 +25,12 @@ def validate():
 
     # 配置验证参数
     args = {
-        'data': 'ultralytics/cfg/datasets/coco128.yaml',      # 数据集配置文件路径（与训练一致）
-        'weights': '../runs/detect/train-v10n+coco128/weights/best.pt',  # 要验证的模型权重
-        'batch': 32,                     # 批量大小（根据显存调整）
-        'imgsz': 320,                    # 输入图像尺寸（与训练一致）
+        'data': '/liubh_ms/longjie/datasets/tt100k_2021/tt100k.yaml',      # 数据集配置文件路径（与训练一致）
+        'weights': '/liubh_ms/longjie/yolov10-semi_eam/runs/train_baseline/exp/weights/best.pt',  # 要验证的模型权重
+        'batch': 16,                     # 批量大小（根据显存调整）
+        'imgsz': 640,                    # 输入图像尺寸（与训练一致）
         'device': '0',                   # 设备（0为GPU，'cpu'为CPU）
-        'workers': 4,                    # 数据加载线程数
+        'workers': 8,                    # 数据加载线程数
         'conf': 0.001,                   # 置信度阈值（低阈值确保检出所有可能目标）
         'iou': 0.6,                      # NMS的IoU阈值
         'save_json': True,               # 保存结果为JSON（用于COCO指标计算）
